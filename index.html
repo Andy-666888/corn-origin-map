@@ -264,7 +264,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
     <input type="file" id="fileInput" accept=".xlsx,.xls" style="display:none" onchange="handleFileUpload(event)">
     <div id="uploadProgress" style="margin-top:12px;font-size:13px;color:#6b7280;display:none"></div>
     <div id="storageStatus" style="margin-top:8px;font-size:12px;color:#9ca3af"></div>
-    <button onclick="resetToDefault()" style="margin-top:8px;padding:6px 16px;font-size:12px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;color:#6b7280">🔄 恢复默认数据</button>
+    <div style="margin-top:8px;display:flex;gap:8px;justify-content:center">
+        <button onclick="downloadUpdatedHTML()" style="padding:6px 16px;font-size:12px;background:#3b82f6;border:none;border-radius:6px;cursor:pointer;color:#fff">💾 下载更新版HTML</button>
+        <button onclick="resetToDefault()" style="padding:6px 16px;font-size:12px;background:#f3f4f6;border:1px solid #d1d5db;border-radius:6px;cursor:pointer;color:#6b7280">🔄 恢复默认数据</button>
+    </div>
 </div>
 <!-- Toast -->
 <div id="toast"></div>
@@ -902,6 +905,45 @@ function resetToDefault() {
     localStorage.removeItem(STORAGE_KEY);
     location.reload();
 }
+async function downloadUpdatedHTML() {
+    showToast('正在生成更新版HTML...');
+    let html = null;
+    // 尝试从GitHub获取原始HTML
+    try {
+        const resp = await fetch('https://api.github.com/repos/Andy-666888/corn-origin-map/contents/index.html', {
+            headers: {'Accept': 'application/vnd.github.v3.raw'}
+        });
+        if(resp.ok) html = await resp.text();
+    } catch(e) {}
+    // 备选：从当前页面URL获取
+    if(!html) {
+        try {
+            const resp = await fetch(location.href);
+            if(resp.ok) html = await resp.text();
+        } catch(e) {}
+    }
+    if(!html) { showToast('❌ 无法获取原始HTML文件'); return; }
+    // 替换四组数据
+    const newJGJson = JSON.stringify(dataJG);
+    const newJKJson = JSON.stringify(dataJK);
+    const newKYJson = JSON.stringify(dataKY);
+    const newGZJson = JSON.stringify(dataGZ);
+    html = html.replace(/let dataJG\s*=\s*\[.*?\];/, 'let dataJG = ' + newJGJson + ';');
+    html = html.replace(/let dataJK\s*=\s*\[.*?\];/, 'let dataJK = ' + newJKJson + ';');
+    html = html.replace(/let dataKY\s*=\s*\[.*?\];/, 'let dataKY = ' + newKYJson + ';');
+    html = html.replace(/let dataGZ\s*=\s*\[.*?\];/, 'let dataGZ = ' + newGZJson + ';');
+    // 下载
+    const blob = new Blob([html], {type:'text/html;charset=utf-8'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = '玉米产地分布地图.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+    showToast('✅ 已下载更新版HTML（嘉吉'+dataJG.length+'/竞争'+dataJK.length+'/可用'+dataKY.length+'/关注'+dataGZ.length+'）');
+}
 
 // 拖拽上传
 const uploadZone = document.querySelector('.upload-zone');
@@ -1021,7 +1063,12 @@ function processUploadedFile(file) {
             const total = newJG.length+newJK.length+newKY.length+newGZ.length;
             prog.textContent = '✅ 更新成功！嘉吉'+newJG.length+'家 / 竞争'+newJK.length+'家 / 可用'+newKY.length+'个 / 关注'+newGZ.length+'个';
             showToast('数据更新成功！共'+total+'条');
-            setTimeout(closeUploadOverlay, 2000);
+            setTimeout(() => {
+                if(confirm('数据已更新！是否下载更新版HTML文件？\n\n下载后将新文件替换到GitHub，所有人就能看到最新数据。')) {
+                    downloadUpdatedHTML();
+                }
+                closeUploadOverlay();
+            }, 1500);
         } catch(err) {
             prog.textContent = '❌ 解析失败：'+err.message;
         }
