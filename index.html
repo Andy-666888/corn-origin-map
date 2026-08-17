@@ -120,9 +120,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 #toast.show{opacity:1}
 /* Leaflet popup */
 .leaflet-popup-content-wrapper{border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.12)}
-.leaflet-popup-content{font-size:13px;line-height:1.5;margin:10px 14px}
-.popup-name{font-weight:700;font-size:14px;color:#1a1a2e;margin-bottom:4px}
-.popup-info{color:#6b7280;font-size:12px}
+.leaflet-popup-content{font-size:11px;line-height:1.3;margin:6px 10px}
+.popup-name{font-weight:600;font-size:12px;color:#1a1a2e}
 /* 距离标签 */
 .dist-label{background:rgba(59,130,246,.9);color:#fff;padding:2px 6px;border-radius:4px;font-size:11px;font-weight:600;white-space:nowrap}
 /* 上传区域 */
@@ -426,7 +425,7 @@ function createMarkers() {
     layers.jg = L.layerGroup();
     dataJG.forEach((d,i) => {
         const m = L.marker([d.y,d.x],{icon:iconStar()});
-        bindPopupWithHover(m,'jg',i, '<div class="popup-name">'+d.n+'</div><div class="popup-info">'+(d.t||'')+'</div>');
+        bindPopupWithHover(m,'jg',i, '<div class="popup-name">'+d.n+'</div>');
         m._data = Object.assign({},d,{type:'jg',idx:i});
         markers.jg.push(m);
         if(layerVisible.jg) layers.jg.addLayer(m);
@@ -437,7 +436,7 @@ function createMarkers() {
     layers.jk = L.layerGroup();
     dataJK.forEach((d,i) => {
         const m = L.marker([d.y,d.x],{icon:iconTriangle()});
-        bindPopupWithHover(m,'jk',i, '<div class="popup-name">'+d.n+'</div><div class="popup-info">关联：'+d.c+'<br>'+(d.t||'')+'</div>');
+        bindPopupWithHover(m,'jk',i, '<div class="popup-name">'+d.n+'</div>');
         m._data = Object.assign({},d,{type:'jk',idx:i});
         markers.jk.push(m);
         if(layerVisible.jk) layers.jk.addLayer(m);
@@ -448,7 +447,7 @@ function createMarkers() {
     layers.ky = L.layerGroup();
     dataKY.forEach((d,i) => {
         const m = L.marker([d.y,d.x],{icon:iconCircleGreen()});
-        bindPopupWithHover(m,'ky',i, '<div class="popup-name">'+d.n+'</div><div class="popup-info">关联：'+d.c+'<br>原料：'+(d.m||'-')+'<br>'+(d.t||'')+'</div>');
+        bindPopupWithHover(m,'ky',i, '<div class="popup-name">'+d.n+'</div>');
         m._data = Object.assign({},d,{type:'ky',idx:i});
         markers.ky.push(m);
         if(layerVisible.ky) layers.ky.addLayer(m);
@@ -459,7 +458,7 @@ function createMarkers() {
     layers.gz = L.layerGroup();
     dataGZ.forEach((d,i) => {
         const m = L.marker([d.y,d.x],{icon:iconCircleBlue()});
-        bindPopupWithHover(m,'gz',i, '<div class="popup-name">'+d.n+'</div><div class="popup-info">关联：'+d.c+'<br>原料：'+(d.m||'-')+'<br>'+(d.t||'')+'</div>');
+        bindPopupWithHover(m,'gz',i, '<div class="popup-name">'+d.n+'</div>');
         m._data = Object.assign({},d,{type:'gz',idx:i});
         markers.gz.push(m);
         if(layerVisible.gz) layers.gz.addLayer(m);
