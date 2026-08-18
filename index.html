@@ -72,7 +72,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 #distancePanel{position:absolute;left:50px;top:12px;z-index:1000;background:#fff;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:12px 16px;display:none;min-width:180px}
 #distancePanel .dist-title{font-size:13px;font-weight:600;color:#374151;margin-bottom:4px}
 #distancePanel .dist-value{font-size:18px;font-weight:700;color:#3b82f6}
-#distancePanel .dist-clear{background:none;border:1px solid #e5e7eb;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;margin-top:6px;color:#6b7280}
+#distancePanel .dist-hint{font-size:11px;color:#9ca3af;margin-bottom:6px}
+#distancePanel .dist-pairs{max-height:180px;overflow-y:auto;margin-bottom:6px}
+.dist-pair-item{display:flex;align-items:center;gap:6px;padding:4px 0;font-size:12px;border-bottom:1px solid #f5f5f5}
+.dist-pair-item .pair-idx{font-weight:600;color:#9ca3af;min-width:22px}
+.dist-pair-item .pair-dist{font-weight:700;color:#3b82f6;min-width:60px;text-align:right}
+.dist-pair-item .pair-del{background:none;border:none;color:#d1d5db;cursor:pointer;font-size:14px;margin-left:auto}
+.dist-pair-item .pair-del:hover{color:#ef4444}
+#distancePanel .dist-total{font-size:13px;font-weight:600;color:#374151;margin-bottom:4px}
+#distancePanel .dist-total span{color:#3b82f6;font-size:15px}
+#distancePanel .dist-clear{background:none;border:1px solid #e5e7eb;border-radius:6px;padding:4px 10px;font-size:12px;cursor:pointer;color:#6b7280}
 #distancePanel .dist-clear:hover{background:#fef2f2;color:#ef4444;border-color:#ef4444}
 /* 绘图工具栏 */
 #drawToolbar{position:absolute;left:50%;transform:translateX(-50%);top:12px;z-index:1000;background:#fff;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,.08);padding:6px 10px;display:flex;align-items:center;gap:4px}
@@ -215,9 +224,11 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 </div>
 <!-- 测距面板 -->
 <div id="distancePanel">
-    <div class="dist-title">📏 测距</div>
-    <div class="dist-value" id="distValue">0 m</div>
-    <button class="dist-clear" onclick="clearDistance()">清除</button>
+    <div class="dist-title">📏 点对点测距</div>
+    <div class="dist-hint" id="distHint">请点击第1个点</div>
+    <div class="dist-pairs" id="distPairs"></div>
+    <div class="dist-total" id="distTotal" style="display:none">合计：<span id="distTotalVal">0</span></div>
+    <button class="dist-clear" onclick="clearDistance()">全部清除</button>
 </div>
 <!-- 绘图工具栏 -->
 <div id="drawToolbar">
@@ -719,30 +730,93 @@ function toggleMeasure() {
     exitInteractionMode();
     measureMode = true;
     document.getElementById('distancePanel').style.display = 'block';
+    updateDistHint();
     enterInteractionMode();
 }
+// ===== 点对点测距 =====
+let measurePairs = []; // [{p1, p2, line, label, dot1, dot2, dist}]
+let measurePending = null; // 第一个点 {latlng, dot}
+
 function addMeasurePoint(latlng) {
-    measurePoints.push(latlng);
-    const dot = L.circleMarker(latlng,{radius:4,color:'#3b82f6',fillColor:'#3b82f6',fillOpacity:1}).addTo(map);
-    measureLabels.push(dot);
-    if(measurePoints.length>1) {
-        const prev=measurePoints[measurePoints.length-2];
-        const line=L.polyline([prev,latlng],{color:'#3b82f6',weight:2}).addTo(map);
-        measureLines.push(line);
-        const dist=haversine(prev.lat,prev.lng,latlng.lat,latlng.lng);
-        const mid=L.latLng((prev.lat+latlng.lat)/2,(prev.lng+latlng.lng)/2);
-        const label=L.marker(mid,{icon:L.divIcon({className:'dist-label',html:formatDist(dist),iconSize:[60,20],iconAnchor:[30,10]})}).addTo(map);
-        measureLabels.push(label);
+    if(!measurePending) {
+        // 第1个点：暂存，等第2个点
+        const dot = L.circleMarker(latlng,{radius:5,color:'#f59e0b',fillColor:'#f59e0b',fillOpacity:1,pane:'drawPane'}).addTo(map);
+        measurePending = {latlng:latlng, dot:dot};
+        updateDistHint();
+    } else {
+        // 第2个点：完成一组
+        const p1 = measurePending.latlng;
+        const p2 = latlng;
+        const dist = haversine(p1.lat,p1.lng,p2.lat,p2.lng);
+        // 把第1个点变蓝
+        measurePending.dot.setStyle({color:'#3b82f6',fillColor:'#3b82f6'});
+        // 画线
+        const line = L.polyline([p1,p2],{color:'#3b82f6',weight:2,pane:'drawPane'}).addTo(map);
+        // 距离标签
+        const mid = L.latLng((p1.lat+p2.lat)/2,(p1.lng+p2.lng)/2);
+        const label = L.marker(mid,{icon:L.divIcon({className:'dist-label',html:formatDist(dist),iconSize:[60,20],iconAnchor:[30,10]}),pane:'drawPane'}).addTo(map);
+        // 第2个点
+        const dot2 = L.circleMarker(p2,{radius:4,color:'#3b82f6',fillColor:'#3b82f6',fillOpacity:1,pane:'drawPane'}).addTo(map);
+        // 记录
+        measurePairs.push({p1:p1,p2:p2,line:line,label:label,dot1:measurePending.dot,dot2:dot2,dist:dist});
+        measurePending = null;
+        updateDistHint();
+        updateDistPanel();
     }
-    let total=0;
-    for(let i=1;i<measurePoints.length;i++) total+=haversine(measurePoints[i-1].lat,measurePoints[i-1].lng,measurePoints[i].lat,measurePoints[i].lng);
-    document.getElementById('distValue').textContent = formatDist(total);
 }
+
+function removeMeasurePair(idx) {
+    const pair = measurePairs[idx];
+    if(!pair) return;
+    map.removeLayer(pair.line);
+    map.removeLayer(pair.label);
+    map.removeLayer(pair.dot1);
+    map.removeLayer(pair.dot2);
+    measurePairs.splice(idx,1);
+    updateDistPanel();
+    updateDistHint();
+}
+
 function clearDistance() {
-    measureLines.forEach(l=>map.removeLayer(l));
-    measureLabels.forEach(l=>map.removeLayer(l));
-    measurePoints=[]; measureLines=[]; measureLabels=[];
-    document.getElementById('distValue').textContent='0 m';
+    measurePairs.forEach(p => {
+        map.removeLayer(p.line);
+        map.removeLayer(p.label);
+        map.removeLayer(p.dot1);
+        map.removeLayer(p.dot2);
+    });
+    measurePairs = [];
+    if(measurePending) { map.removeLayer(measurePending.dot); measurePending=null; }
+    updateDistPanel();
+    updateDistHint();
+}
+
+function updateDistHint() {
+    const hint = document.getElementById('distHint');
+    if(measurePending) {
+        hint.textContent = '请点击第2个点（完成一组）';
+        hint.style.color = '#f59e0b';
+    } else {
+        const n = measurePairs.length;
+        hint.textContent = n===0 ? '请点击第1个点' : '已完成'+n+'组 · 点击继续测量';
+        hint.style.color = '#9ca3af';
+    }
+}
+
+function updateDistPanel() {
+    const container = document.getElementById('distPairs');
+    const totalDiv = document.getElementById('distTotal');
+    if(!measurePairs.length) {
+        container.innerHTML = '';
+        totalDiv.style.display = 'none';
+        return;
+    }
+    container.innerHTML = measurePairs.map((p,i) =>
+        '<div class="dist-pair-item"><span class="pair-idx">#'+(i+1)+'</span><span class="pair-dist">'+formatDist(p.dist)+'</span><button class="pair-del" onclick="removeMeasurePair('+i+')" title="删除此组">✕</button></div>'
+    ).join('');
+    let total = 0;
+    measurePairs.forEach(p => total += p.dist);
+    totalDiv.style.display = 'block';
+    document.getElementById('distTotalVal').textContent = formatDist(total);
 }
 map.on('dblclick', function() { if(measureMode) toggleMeasure(); });
 
