@@ -356,7 +356,7 @@ let editHandler = null;
 let arrowsData = []; // 存储箭头数据 [{lineLayer, headLayer, lastLat, lastLng, prevLat, prevLng, color}]
 
 // ===== 初始化地图 =====
-const map = L.map('map', {center:[35.5,108],zoom:5,minZoom:4,maxZoom:18,zoomControl:true});
+const map = L.map('map', {center:[35.5,108],zoom:5,minZoom:4,maxZoom:18,zoomControl:true,zoomSnap:0,zoomDelta:0.25,wheelPxPerZoomLevel:120,zoomAnimation:true});
 
 // 创建自定义drawPane，确保绘图在标记上方
 map.createPane('drawPane');
