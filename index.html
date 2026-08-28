@@ -447,6 +447,69 @@ function togglePin(type, idx) {
     if(btn) btn.classList.toggle('pinned', !!pinnedCards[key]);
 }
 
+// ===== 全局卡片拖拽系统（单例，避免重复绑定）=====
+let _dragRec = null, _dragSX=0, _dragSY=0, _dragOX=0, _dragOY=0, _dragRaf=0;
+
+function _onDragMove(clientX, clientY) {
+    if(!_dragRec) return;
+    _dragRec.offsetX = _dragOX + (clientX - _dragSX);
+    _dragRec.offsetY = _dragOY + (clientY - _dragSY);
+    if(!_dragRaf) {
+        _dragRaf = requestAnimationFrame(function(){
+            if(_dragRec) updatePinCardPos(Object.keys(pinnedCards).find(function(k){return pinnedCards[k]===_dragRec;}));
+            _dragRaf = 0;
+        });
+    }
+}
+
+function startCardDrag(e) {
+    const card = e.currentTarget;
+    if(e.target && e.target.classList && e.target.classList.contains('pc-close')) return;
+    // 阻止冒泡到 Leaflet 地图（防止地图跟着拖动）
+    e.stopPropagation();
+    e.preventDefault();
+    const key = card.getAttribute('data-pin-key');
+    const rec = pinnedCards[key];
+    if(!rec) return;
+    _dragRec = rec;
+    const pt = e.touches ? e.touches[0] : e;
+    _dragSX = pt.clientX; _dragSY = pt.clientY;
+    _dragOX = rec.offsetX; _dragOY = rec.offsetY;
+    document.body.style.userSelect = 'none';
+    card.style.cursor = 'grabbing';
+    // 临时禁用地图拖拽
+    if(map.dragging) map.dragging.disable();
+    if(map.tap) map.tap.disable();
+}
+
+document.addEventListener('mousemove', function(e){
+    if(!_dragRec) return;
+    e.preventDefault();
+    _onDragMove(e.clientX, e.clientY);
+});
+document.addEventListener('mouseup', function(){
+    if(!_dragRec) return;
+    document.body.style.userSelect = '';
+    _dragRec.cardEl.style.cursor = 'grab';
+    _dragRec = null;
+    if(map.dragging) map.dragging.enable();
+    if(map.tap) map.tap.enable();
+});
+document.addEventListener('touchmove', function(e){
+    if(!_dragRec) return;
+    e.preventDefault();
+    const t = e.touches[0];
+    _onDragMove(t.clientX, t.clientY);
+}, {passive:false});
+document.addEventListener('touchend', function(){
+    if(!_dragRec) return;
+    document.body.style.userSelect = '';
+    _dragRec.cardEl.style.cursor = 'grab';
+    _dragRec = null;
+    if(map.dragging) map.dragging.enable();
+    if(map.tap) map.tap.enable();
+});
+
 function createPinCard(key, marker, type, idx) {
     const d = marker._data;
     const layer = document.getElementById('pinCardsLayer');
@@ -455,6 +518,7 @@ function createPinCard(key, marker, type, idx) {
     // 卡片
     const card = document.createElement('div');
     card.className = 'pin-card ' + type;
+    card.setAttribute('data-pin-key', key);
     card.textContent = d.n;
     const close = document.createElement('span');
     close.className = 'pc-close';
@@ -475,35 +539,9 @@ function createPinCard(key, marker, type, idx) {
     const rec = {marker, type, idx, cardEl: card, lineEl: line, offsetX: off.x, offsetY: off.y};
     pinnedCards[key] = rec;
 
-    // 拖拽
-    let dragging = false, sx=0, sy=0, ox=0, oy=0;
-    card.addEventListener('mousedown', function(e){
-        if(e.target===close) return;
-        dragging = true;
-        sx=e.clientX; sy=e.clientY; ox=rec.offsetX; oy=rec.offsetY;
-        e.preventDefault();
-    });
-    document.addEventListener('mousemove', function(e){
-        if(!dragging) return;
-        rec.offsetX = ox + (e.clientX - sx);
-        rec.offsetY = oy + (e.clientY - sy);
-        updatePinCardPos(key);
-    });
-    document.addEventListener('mouseup', function(){ dragging = false; });
-    // touch
-    card.addEventListener('touchstart', function(e){
-        if(e.target===close) return;
-        const t=e.touches[0];
-        dragging=true; sx=t.clientX; sy=t.clientY; ox=rec.offsetX; oy=rec.offsetY;
-    }, {passive:true});
-    document.addEventListener('touchmove', function(e){
-        if(!dragging) return;
-        const t=e.touches[0];
-        rec.offsetX = ox + (t.clientX - sx);
-        rec.offsetY = oy + (t.clientY - sy);
-        updatePinCardPos(key);
-    }, {passive:true});
-    document.addEventListener('touchend', function(){ dragging=false; });
+    // 拖拽（全局单例，避免重复绑定 + 阻止地图联动）
+    card.addEventListener('mousedown', startCardDrag);
+    card.addEventListener('touchstart', startCardDrag, {passive:false});
 
     updatePinCardPos(key);
 }
