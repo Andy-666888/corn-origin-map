@@ -147,6 +147,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 .pin-btn{cursor:pointer;font-size:13px;opacity:0.25;transition:all .2s;margin-left:6px;vertical-align:middle;display:inline-block;user-select:none}
 .pin-btn:hover{opacity:0.7;transform:scale(1.2)}
 .pin-btn.pinned{opacity:1;filter:drop-shadow(0 1px 2px rgba(0,0,0,.3))}
+.pin-card{position:absolute;z-index:800;background:rgba(255,255,255,0.94);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:2px solid;border-radius:8px;padding:4px 26px 4px 10px;font-size:12px;font-weight:600;white-space:nowrap;cursor:grab;user-select:none;box-shadow:0 2px 10px rgba(0,0,0,.18);pointer-events:auto;max-width:240px;overflow:hidden;text-overflow:ellipsis;line-height:1.4}
+.pin-card:active{cursor:grabbing}
+.pin-card .pc-close{position:absolute;right:4px;top:50%;transform:translateY(-50%);cursor:pointer;font-size:13px;color:#999;line-height:1;padding:2px 3px;border-radius:3px}
+.pin-card .pc-close:hover{color:#e74c3c;background:rgba(0,0,0,.05)}
+.pin-card.jg{border-color:#e74c3c;color:#c0392b}
+.pin-card.jk{border-color:#3498db;color:#2471a3}
+.pin-card.ky{border-color:#27ae60;color:#1e8449}
+.pin-card.gz{border-color:#9b59b6;color:#7d3c98}
+#pinLinesSvg{position:absolute;top:0;left:0;width:100%;height:100%;z-index:790;pointer-events:none;overflow:visible}
+.pin-line{fill:none;stroke-width:1.8;stroke-dasharray:none;opacity:0.7}
 /* Custom popup styles - semi-transparent + colored border */
 .custom-popup .leaflet-popup-content-wrapper{background:rgba(255,255,255,0.88);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px);border:2.5px solid;border-radius:10px;box-shadow:0 4px 16px rgba(0,0,0,.15)}
 .custom-popup .leaflet-popup-tip{background:rgba(255,255,255,0.88);box-shadow:none}
@@ -178,6 +188,19 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
 </div>
 <div id="togglePanel" onclick="toggleLeftPanel()">◀</div>
 <div id="map"></div>
+<script>
+(function(){
+    var mapEl = document.getElementById('map');
+    var svg = document.createElementNS('http://www.w3.org/2000/svg','svg');
+    svg.id = 'pinLinesSvg';
+    svg.setAttribute('style','position:absolute;top:0;left:0;width:100%;height:100%;z-index:790;pointer-events:none;overflow:visible');
+    mapEl.appendChild(svg);
+    var layer = document.createElement('div');
+    layer.id = 'pinCardsLayer';
+    layer.setAttribute('style','position:absolute;top:0;left:0;width:100%;height:100%;z-index:800;pointer-events:none');
+    mapEl.appendChild(layer);
+})();
+</script>
 <!-- 右侧控制面板 -->
 <div id="controlPanel">
     <div class="cp-section">
@@ -219,6 +242,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Micr
         <button class="tool-btn" onclick="exportFiltered()">📥 导出筛选结果</button>
         <button class="tool-btn" id="batchBtn" onclick="startBatchMeasure()">📏 批量测距</button>
         <button class="tool-btn" id="circleBtn" onclick="startCircleTool()">⭕ 画圈工具</button>
+        <button class="tool-btn" onclick="clearAllPinnedCards()">🧹 清除全部固定卡片</button>
     </div>
     <div id="statsBar">当前可见：<strong id="statsVisible">0</strong> 家</div>
 </div>
@@ -385,17 +409,17 @@ function iconCircleBlue() {
     return L.divIcon({className:'legend-marker',html:'<div class="marker-circle-blue"></div>',iconSize:[12,12],iconAnchor:[6,6]});
 }
 
-// ===== 📌 固定提示框状态 =====
-let pinnedMarkers = new Set(); // 存储 "type_idx" 字符串
+// ===== 📌 固定卡片系统 =====
+let pinnedCards = {}; // key -> {marker, type, idx, cardEl, lineEl, offsetX, offsetY}
 
 function bindPopupWithHover(m, type, idx, content) {
     const key = type + '_' + idx;
     m.bindPopup(content, {className:'custom-popup popup-'+type, autoClose:false, closeOnClick:false, closeButton:false});
     m.on('mouseover', function() {
-        if(!pinnedMarkers.has(key)) this.openPopup();
+        if(!pinnedCards[key]) this.openPopup();
     });
     m.on('mouseout', function() {
-        if(!pinnedMarkers.has(key)) this.closePopup();
+        if(!pinnedCards[key]) this.closePopup();
     });
 }
 
@@ -403,26 +427,132 @@ function closeUnpinnedPopups() {
     ['jg','jk','ky','gz'].forEach(type => {
         markers[type].forEach(m => {
             const key = m._data.type + '_' + m._data.idx;
-            if(!pinnedMarkers.has(key) && m.isPopupOpen()) m.closePopup();
+            if(!pinnedCards[key] && m.isPopupOpen()) m.closePopup();
         });
     });
 }
+
+const PC_COLORS = {jg:'#e74c3c', jk:'#3498db', ky:'#27ae60', gz:'#9b59b6'};
 
 function togglePin(type, idx) {
     const key = type + '_' + idx;
     const m = markers[type][idx];
     if(!m) return;
-    if(pinnedMarkers.has(key)) {
-        pinnedMarkers.delete(key);
-        m.closePopup();
+    if(pinnedCards[key]) {
+        removePinCard(key);
     } else {
-        pinnedMarkers.add(key);
-        m.openPopup();
+        createPinCard(key, m, type, idx);
     }
-    // 更新左侧面板按钮状态
     const btn = document.querySelector('.pin-btn[data-key="'+key+'"]');
-    if(btn) btn.classList.toggle('pinned', pinnedMarkers.has(key));
+    if(btn) btn.classList.toggle('pinned', !!pinnedCards[key]);
 }
+
+function createPinCard(key, marker, type, idx) {
+    const d = marker._data;
+    const layer = document.getElementById('pinCardsLayer');
+    const svg = document.getElementById('pinLinesSvg');
+
+    // 卡片
+    const card = document.createElement('div');
+    card.className = 'pin-card ' + type;
+    card.textContent = d.n;
+    const close = document.createElement('span');
+    close.className = 'pc-close';
+    close.innerHTML = '\u2715';
+    close.onclick = function(e){ e.stopPropagation(); togglePin(type, idx); };
+    card.appendChild(close);
+    layer.appendChild(card);
+
+    // 连线
+    const line = document.createElementNS('http://www.w3.org/2000/svg','line');
+    line.setAttribute('class','pin-line');
+    line.setAttribute('stroke', PC_COLORS[type]);
+    svg.appendChild(line);
+
+    // 初始偏移：卡片放在标记右上方
+    const off = {x: 16, y: -36};
+
+    const rec = {marker, type, idx, cardEl: card, lineEl: line, offsetX: off.x, offsetY: off.y};
+    pinnedCards[key] = rec;
+
+    // 拖拽
+    let dragging = false, sx=0, sy=0, ox=0, oy=0;
+    card.addEventListener('mousedown', function(e){
+        if(e.target===close) return;
+        dragging = true;
+        sx=e.clientX; sy=e.clientY; ox=rec.offsetX; oy=rec.offsetY;
+        e.preventDefault();
+    });
+    document.addEventListener('mousemove', function(e){
+        if(!dragging) return;
+        rec.offsetX = ox + (e.clientX - sx);
+        rec.offsetY = oy + (e.clientY - sy);
+        updatePinCardPos(key);
+    });
+    document.addEventListener('mouseup', function(){ dragging = false; });
+    // touch
+    card.addEventListener('touchstart', function(e){
+        if(e.target===close) return;
+        const t=e.touches[0];
+        dragging=true; sx=t.clientX; sy=t.clientY; ox=rec.offsetX; oy=rec.offsetY;
+    }, {passive:true});
+    document.addEventListener('touchmove', function(e){
+        if(!dragging) return;
+        const t=e.touches[0];
+        rec.offsetX = ox + (t.clientX - sx);
+        rec.offsetY = oy + (t.clientY - sy);
+        updatePinCardPos(key);
+    }, {passive:true});
+    document.addEventListener('touchend', function(){ dragging=false; });
+
+    updatePinCardPos(key);
+}
+
+function updatePinCardPos(key) {
+    const rec = pinnedCards[key];
+    if(!rec) return;
+    const mapRect = document.getElementById('map').getBoundingClientRect();
+    const pt = map.latLngToContainerPoint(rec.marker.getLatLng());
+    const card = rec.cardEl;
+    const cw = card.offsetWidth || 100;
+    const ch = card.offsetHeight || 24;
+    const cx = pt.x + rec.offsetX;
+    const cy = pt.y + rec.offsetY;
+    card.style.left = cx + 'px';
+    card.style.top = cy + 'px';
+    // 连线：从卡片靠近标记的一侧到标记点
+    let lx, ly;
+    if(rec.offsetX >= 0) { lx = cx; } else { lx = cx + cw; }
+    if(rec.offsetY >= 0) { ly = cy; } else { ly = cy + ch; }
+    rec.lineEl.setAttribute('x1', lx);
+    rec.lineEl.setAttribute('y1', ly);
+    rec.lineEl.setAttribute('x2', pt.x);
+    rec.lineEl.setAttribute('y2', pt.y);
+}
+
+function updateAllPinCards() {
+    Object.keys(pinnedCards).forEach(updatePinCardPos);
+}
+
+function removePinCard(key) {
+    const rec = pinnedCards[key];
+    if(!rec) return;
+    rec.cardEl.remove();
+    rec.lineEl.remove();
+    delete pinnedCards[key];
+}
+
+function clearAllPinnedCards() {
+    Object.keys(pinnedCards).forEach(k => {
+        pinnedCards[k].cardEl.remove();
+        pinnedCards[k].lineEl.remove();
+        delete pinnedCards[k];
+    });
+    document.querySelectorAll('.pin-btn.pinned').forEach(b => b.classList.remove('pinned'));
+}
+
+// 地图移动/缩放时更新卡片位置
+map.on('move zoom', updateAllPinCards);
 
 // ===== 创建标记 =====
 function createMarkers() {
@@ -476,11 +606,6 @@ function createMarkers() {
     });
     if(layerVisible.gz) layers.gz.addTo(map);
 
-    // 恢复之前固定的标记
-    pinnedMarkers.forEach(key => {
-        const [type, idx] = [key.split('_')[0], parseInt(key.split('_')[1])];
-        if(markers[type][idx]) markers[type][idx].openPopup();
-    });
 }
 
 createMarkers();
@@ -562,8 +687,8 @@ function buildFactoryList() {
     // 📌 按钮生成辅助
     function pinBtn(type, idx) {
         const key = type+'_'+idx;
-        const isPinned = pinnedMarkers.has(key);
-        return '<span class="pin-btn'+(isPinned?' pinned':'')+'" data-key="'+key+'" onclick="event.stopPropagation();togglePin(\''+type+'\','+idx+')" title="'+(isPinned?'取消固定':'固定显示提示框')+'">📌</span>';
+        const isPinned = !!pinnedCards[key];
+        return '<span class="pin-btn'+(isPinned?' pinned':'')+'" data-key="'+key+'" onclick="event.stopPropagation();togglePin(\''+type+'\','+idx+')" title="'+(isPinned?'取消固定':'固定名称卡片')+'">📌</span>';
     }
 
     // 嘉吉工厂
@@ -633,9 +758,7 @@ function flyToMarker(type, idx) {
     if(m) {
         closeUnpinnedPopups();
         map.flyTo(m.getLatLng(), 13, {duration:0.8});
-        setTimeout(() => {
-            if(!pinnedMarkers.has(type+'_'+idx)) m.openPopup();
-        }, 800);
+        setTimeout(() => { if(!pinnedCards[type+'_'+idx]) m.openPopup(); }, 800);
     }
 }
 
@@ -1199,7 +1322,7 @@ function processUploadedFile(file) {
             clearAllDrawings();
             clearAllCircles();
             clearDistance();
-            pinnedMarkers.clear();
+            clearAllPinnedCards();
             activeCargillFilter = null;
             document.getElementById('cargillFilter').value = '';
             document.getElementById('activeFilter').style.display = 'none';
